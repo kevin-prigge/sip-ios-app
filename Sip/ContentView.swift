@@ -13,11 +13,10 @@ struct ContentView: View {
     @State private var todayDrinks: Int = 0
     @State private var todaySoda: Int = 0
     @State private var todayCoffee: Int = 0
-    @State private var notifGranted: Bool? = nil
-    @State private var showingTimesHelp = false
     @Environment(\.scenePhase) private var scenePhase
     @State private var midnightTimer: Timer? = nil
-    @State private var showReminderSettings: Bool = false
+    @State private var headerCollapse: CGFloat = 0
+    @State private var showingAddCard: Bool = false
 
     private var bonusPairs: Int { (todaySoda + todayCoffee) / 2 }
     private var bonusOunces: Int { bonusPairs * 8 }
@@ -27,25 +26,76 @@ struct ContentView: View {
         NavigationStack {
             Form {
                 Section("Today") {
+                    let unit = settings.volumeUnit
+                    let mlPerUnit = unit.mlPerUnit
+                    let amountValue = todayML / mlPerUnit
+                    let goalValue = settings.goalML / mlPerUnit
+                    let bonusValue: Double = {
+                        switch unit {
+                        case .ounces: return Double(bonusOunces)
+                        case .liters: return Double(bonusOunces) * 29.574 / 1000.0
+                        case .cups: return Double(bonusOunces) / 8.0
+                        }
+                    }()
+                    let unitLabel = (unit == .cups) ? "cups" : unit.label
+                    let showsDecimal = (unit == .liters || unit == .cups)
+
                     TodayRing(
                         progress: min(todayML / adjustedGoalML, 1.0),
-                        ounces: Int(todayML / 29.574),
-                        goalOunces: Int(settings.goalML / 29.574),
-                        bonusOunces: bonusOunces,
+                        amountValue: amountValue,
+                        goalValue: goalValue,
+                        bonusValue: bonusValue,
+                        unitLabel: unitLabel,
+                        showsDecimal: showsDecimal,
                         drinkCounts: (water: todayDrinks, soda: todaySoda, coffee: todayCoffee)
                     )
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear
+                                .preference(
+                                    key: ScrollOffsetPreferenceKey.self,
+                                    value: proxy.frame(in: .named("scroll")).minY
+                                )
+                        }
+                    )
+                }
+                
+                Section {
+                    Button {
+                        showingAddCard = true
+                    } label: {
+                        Text("Add Drink")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.blue)
+                    .controlSize(.large)
                 }
 
                 Section("Quick Add") {
                     VStack(alignment: .leading, spacing: 8) {
+                        let unit = settings.volumeUnit
+                        let unitLabel = (unit == .cups) ? "cups" : unit.label
+
                         // Water row: 4, 8, 12, 16 oz (blue)
                         HStack {
-                            ForEach([4, 8, 12, 16], id: \.self) { oz in
-                                Button("+\(oz) oz") {
+                            ForEach([4, 8, 12, 16], id: \.self) { baseOz in
+                                let ml = Double(baseOz) * 29.574
+                                let display = ml / unit.mlPerUnit
+                                let title: String = {
+                                    if unit == .cups || unit == .liters {
+                                        return String(format: "+%.1f %@", display, unitLabel)
+                                    } else {
+                                        return "+\(Int(display)) \(unitLabel)"
+                                    }
+                                }()
+                                Button(title) {
                                     Task {
-                                        let ml = Double(oz) * 29.574
                                         try? await HealthKitManager.shared.addWater(mL: ml)
-                                        await MainActor.run { todayDrinks += 1 }
+                                        await MainActor.run {
+                                            todayDrinks += 1
+                                        }
                                         await refresh()
                                     }
                                 }
@@ -55,8 +105,17 @@ struct ContentView: View {
                         }
                         // Soda row: 12, 20 oz (red)
                         HStack {
-                            ForEach([12, 20], id: \.self) { oz in
-                                Button("+\(oz) oz") {
+                            ForEach([12, 20], id: \.self) { baseOz in
+                                let ml = Double(baseOz) * 29.574
+                                let display = ml / unit.mlPerUnit
+                                let title: String = {
+                                    if unit == .cups || unit == .liters {
+                                        return String(format: "+%.1f %@", display, unitLabel)
+                                    } else {
+                                        return "+\(Int(display)) \(unitLabel)"
+                                    }
+                                }()
+                                Button(title) {
                                     todaySoda += 1
                                 }
                                 .buttonStyle(.borderedProminent)
@@ -65,7 +124,17 @@ struct ContentView: View {
                         }
                         // Coffee row: 8 oz (brown)
                         HStack {
-                            Button("+8 oz") {
+                            let baseOz = 8
+                            let ml = Double(baseOz) * 29.574
+                            let display = ml / unit.mlPerUnit
+                            let title: String = {
+                                if unit == .cups || unit == .liters {
+                                    return String(format: "+%.1f %@", display, unitLabel)
+                                } else {
+                                    return "+\(Int(display)) \(unitLabel)"
+                                }
+                            }()
+                            Button(title) {
                                 todayCoffee += 1
                             }
                             .buttonStyle(.borderedProminent)
@@ -76,121 +145,61 @@ struct ContentView: View {
 
                 Section("Daily Goal") {
                     Stepper(value: $settings.goalML, in: 1000...6000, step: 100) {
-                        Text("\(Int(settings.goalML / 29.574)) oz + \(bonusOunces) oz")
-                    }
-                }
-
-                Section("Reminders") {
-                    Toggle("Enable reminders", isOn: $settings.enabled)
-                        .onChange(of: settings.enabled) { _, on in
-                            Task { await rescheduleReminders(enabled: on) }
-                        }
-
-                    DisclosureGroup(isExpanded: $showReminderSettings) {
-                        VStack(spacing: 8) {
-                            ForEach(0..<6, id: \.self) { idx in
-                                HStack {
-                                    Toggle(isOn: Binding(
-                                        get: { settings.reminderEnabled[idx] },
-                                        set: { newVal in
-                                            settings.reminderEnabled[idx] = newVal
-                                            Task { await rescheduleReminders(enabled: settings.enabled) }
-                                        }
-                                    )) { EmptyView() }
-                                    .toggleStyle(.switch)
-                                    .frame(width: 60)
-
-                                    let minutesBinding = Binding<Int>(
-                                        get: { settings.reminderTimesMinutes[idx] },
-                                        set: { newVal in
-                                            settings.reminderTimesMinutes[idx] = max(0, min(23*60+59, newVal))
-                                            Task { await rescheduleReminders(enabled: settings.enabled) }
-                                        }
-                                    )
-
-                                    // 12-hour bindings
-                                    let hour12Binding = Binding<Int>(
-                                        get: {
-                                            let h24 = minutesBinding.wrappedValue / 60
-                                            let h12 = h24 % 12
-                                            return h12 == 0 ? 12 : h12
-                                        },
-                                        set: { h12 in
-                                            let minute = minutesBinding.wrappedValue % 60
-                                            let pm = (minutesBinding.wrappedValue / 60) >= 12
-                                            var hour = h12 % 12 // 0..11
-                                            if pm { hour += 12 }
-                                            minutesBinding.wrappedValue = hour * 60 + minute
-                                        }
-                                    )
-
-                                    let isPMBinding = Binding<Bool>(
-                                        get: { (minutesBinding.wrappedValue / 60) >= 12 },
-                                        set: { pm in
-                                            let minute = minutesBinding.wrappedValue % 60
-                                            var hour = (minutesBinding.wrappedValue / 60) % 12 // 0..11
-                                            if pm { hour += 12 }
-                                            minutesBinding.wrappedValue = hour * 60 + minute
-                                        }
-                                    )
-
-                                    HStack(spacing: 8) {
-                                        Picker("", selection: hour12Binding) {
-                                            ForEach(1...12, id: \.self) { Text("\($0)") }
-                                        }
-                                        .pickerStyle(.menu)
-                                        .labelsHidden()
-
-                                        Text(":")
-
-                                        Picker("", selection: Binding(
-                                            get: { minutesBinding.wrappedValue % 60 },
-                                            set: { minute in
-                                                minutesBinding.wrappedValue = (minutesBinding.wrappedValue / 60) * 60 + minute
-                                            }
-                                        )) {
-                                            ForEach(0..<60, id: \.self) { Text(String(format: "%02d", $0)) }
-                                        }
-                                        .pickerStyle(.menu)
-                                        .labelsHidden()
-
-                                        Picker("", selection: isPMBinding) {
-                                            Text("AM").tag(false)
-                                            Text("PM").tag(true)
-                                        }
-                                        .pickerStyle(.segmented)
-                                        .labelsHidden()
-                                        .frame(maxWidth: 140)
-                                    }
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                }
+                        let unit = settings.volumeUnit
+                        let goalVal = settings.goalML / unit.mlPerUnit
+                        let bonusVal: Double = {
+                            switch unit {
+                            case .ounces: return Double(bonusOunces)
+                            case .liters: return Double(bonusOunces) * 29.574 / 1000.0
+                            case .cups: return Double(bonusOunces) / 8.0
                             }
+                        }()
+                        let unitLabel = (unit == .cups) ? "cups" : unit.label
+                        let showsDecimal = (unit == .liters || unit == .cups)
+                        if showsDecimal {
+                            Text(String(format: "%.1f %@ + %.1f %@", goalVal, unitLabel, bonusVal, unitLabel))
+                        } else {
+                            Text("\(Int(goalVal)) \(unitLabel) + \(Int(bonusVal)) \(unitLabel)")
                         }
-                        .padding(.top, 4)
-                    } label: {
-                        Text("Notification Times")
                     }
-                    .disabled(!(notifGranted ?? false))
-
-                    if let granted = notifGranted {
-                        Label(granted ? "Notifications allowed" : "Notifications not allowed",
-                              systemImage: granted ? "bell.badge.fill" : "bell.slash")
-                            .foregroundStyle(granted ? .green : .red)
-                    }
-
-                    Button("What times?") { showingTimesHelp = true }
-                        .buttonStyle(.borderless)
                 }
             }
-            .navigationTitle("Sip")
+            .coordinateSpace(name: "scroll")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(destination: SettingsView(settings: settings)) {
+                        Image(systemName: "gear")
+                    }
+                    .accessibilityLabel("Settings")
+                }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                CollapsingHeader(progress: headerCollapse, isPresentingAdd: $showingAddCard)
+            }
+            .sheet(isPresented: $showingAddCard) {
+                AddDrinkSheet(settings: settings, isPresented: $showingAddCard) { kind, amount in
+                    switch kind {
+                    case .water:
+                        Task {
+                            let ml = amount * settings.volumeUnit.mlPerUnit
+                            try? await HealthKitManager.shared.addWater(mL: ml)
+                            await MainActor.run { todayDrinks += 1 }
+                            await refresh()
+                        }
+                    case .soda:
+                        todaySoda += 1
+                    case .coffee:
+                        todayCoffee += 1
+                    }
+                }
+                .presentationDetents([.height(300), .medium])
+                .presentationDragIndicator(.visible)
+            }
             .task {
-                NotificationManager.shared.configure()
-                let granted = await NotificationManager.shared.requestPermission()
-                notifGranted = granted
                 do { try await HealthKitManager.shared.requestAuthorization() } catch { }
                 await refresh()
                 scheduleMidnightRefresh()
-                await rescheduleReminders(enabled: settings.enabled, force: false)
             }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
@@ -199,25 +208,11 @@ struct ContentView: View {
                     Task { await refresh() }
                 }
             }
+            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { y in
+                let progress = min(max(-y / 80.0, 0.0), 1.0)
+                headerCollapse = progress
+            }
             .refreshable { await refresh() }
-            .alert("Reminder Times",
-                   isPresented: $showingTimesHelp,
-                   actions: { Button("OK", role: .cancel) { } },
-                   message: {
-                       let enabledTimes = zip(settings.currentReminderTimes, settings.reminderEnabled)
-                           .enumerated()
-                           .compactMap { _, pair -> String? in
-                               let (dc, isOn) = pair
-                               guard isOn, let h = dc.hour, let m = dc.minute else { return nil }
-                               let isPM = h >= 12
-                               var hour12 = h % 12
-                               if hour12 == 0 { hour12 = 12 }
-                               let suffix = isPM ? "PM" : "AM"
-                               return String(format: "%d:%02d %@", hour12, m, suffix)
-                           }
-                           .joined(separator: ", ")
-                       return Text(enabledTimes.isEmpty ? "No times enabled." : enabledTimes)
-                   })
         }
     }
 
@@ -226,21 +221,6 @@ struct ContentView: View {
         let ml = (try? await HealthKitManager.shared.todayTotalML()) ?? 0
         todayML = ml
         todayDrinks = (try? await HealthKitManager.shared.todaySampleCount()) ?? 0
-    }
-
-    @MainActor
-    private func rescheduleReminders(enabled: Bool, force: Bool = false) async {
-        guard notifGranted == true else { return }
-        let mgr = NotificationManager.shared
-        mgr.clearScheduled()
-        if enabled || force {
-            let times = zip(settings.currentReminderTimes, settings.reminderEnabled).compactMap { dc, isOn in
-                isOn ? dc : nil
-            }
-            if !times.isEmpty {
-                mgr.scheduleDaily(times: times)
-            }
-        }
     }
 
     @MainActor
@@ -265,9 +245,11 @@ struct ContentView: View {
 
 struct TodayRing: View {
     let progress: Double
-    let ounces: Int
-    let goalOunces: Int
-    let bonusOunces: Int
+    let amountValue: Double
+    let goalValue: Double
+    let bonusValue: Double
+    let unitLabel: String
+    let showsDecimal: Bool
     let drinkCounts: (water: Int, soda: Int, coffee: Int)
 
     var body: some View {
@@ -291,12 +273,18 @@ struct TodayRing: View {
                         .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(.blue)
                     VStack(spacing: 2) {
-                        Text("\(ounces)")
+                        Text(showsDecimal ? String(format: "%.1f", amountValue) : String(Int(amountValue)))
                             .font(.system(.title, design: .rounded).weight(.bold))
                             .monospacedDigit()
-                        Text("of \(goalOunces + bonusOunces) oz")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        if progress >= 1.0 {
+                            Text("you did it! 🎉")
+                                .font(.footnote)
+                                .foregroundStyle(.green)
+                        } else {
+                            Text(showsDecimal ? String(format: "of %.1f %@", goalValue + bonusValue, unitLabel) : "of \(Int(goalValue + bonusValue)) \(unitLabel)")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
@@ -338,6 +326,141 @@ struct TodayRing: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+private struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+struct CollapsingHeader: View {
+    let progress: CGFloat
+    @Binding var isPresentingAdd: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            let bigHeight: CGFloat = 90
+            let smallHeight: CGFloat = 28
+            let height = bigHeight - (bigHeight - smallHeight) * progress
+            let centerX = width / 2
+            let leadingX = 16 + height / 2
+            let x = centerX + (leadingX - centerX) * progress
+
+            Image(isPresentingAdd ? "SIPHeaderIcon2" : "SIPHeaderIcon")
+                .resizable()
+                .scaledToFit()
+                .frame(height: height)
+                .accessibilityHidden(false)
+                .accessibilityLabel("Add drink")
+                .accessibilityAddTraits(.isButton)
+                .position(x: x, y: bigHeight / 2)
+                .contentShape(Rectangle())
+                .onTapGesture { isPresentingAdd = true }
+                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: progress)
+        }
+        .frame(height: 100)
+        .padding(.vertical, 6)
+        .background(.bar)
+    }
+}
+
+enum DrinkKind: String, CaseIterable, Identifiable {
+    case water = "Water", soda = "Soda", coffee = "Coffee"
+    var id: String { rawValue }
+}
+
+struct AddDrinkSheet: View {
+    @ObservedObject var settings: SettingsStore
+    @Binding var isPresented: Bool
+    var onAdd: (DrinkKind, Double) -> Void
+    @State private var kind: DrinkKind = .water
+    @State private var amount: Double = 12
+
+    private var sliderTint: Color {
+        switch kind {
+        case .water: return .blue
+        case .soda: return .red
+        case .coffee: return .brown
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Picker("Drink", selection: $kind) {
+                    ForEach(DrinkKind.allCases) { k in
+                        Text(k.rawValue).tag(k)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    let unit = settings.volumeUnit
+                    let unitLabel = (unit == .cups) ? "cups" : unit.label
+                    let maxAmount: Double = {
+                        switch unit {
+                        case .ounces: return 44
+                        case .liters: return 2.0
+                        case .cups: return 6
+                        }
+                    }()
+                    let step: Double = {
+                        switch unit {
+                        case .ounces: return 1
+                        case .liters: return 0.05
+                        case .cups: return 0.1
+                        }
+                    }()
+                    HStack {
+                        Text("Amount")
+                        Spacer()
+                        Text({
+                            if unit == .cups || unit == .liters { return String(format: "%.1f %@", amount, unitLabel) }
+                            else { return "\(Int(amount)) \(unitLabel)" }
+                        }())
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                    }
+                    Slider(value: $amount, in: 0...maxAmount, step: step)
+                        .tint(sliderTint)
+                }
+
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Add Drink")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { isPresented = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        onAdd(kind, amount)
+                        isPresented = false
+                    }
+                    .disabled(amount <= 0)
+                }
+            }
+            .onAppear {
+                switch settings.volumeUnit {
+                case .ounces: amount = 12
+                case .liters: amount = 0.35
+                case .cups: amount = 1.5
+                }
+            }
+            .onChange(of: settings.volumeUnit) { _, newUnit in
+                switch newUnit {
+                case .ounces: amount = 12
+                case .liters: amount = 0.35
+                case .cups: amount = 1.5
+                }
+            }
         }
     }
 }

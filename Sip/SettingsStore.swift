@@ -11,10 +11,33 @@ import Combine
 
 @MainActor
 final class SettingsStore: ObservableObject {
+    enum VolumeUnit: String, CaseIterable, Identifiable, Codable {
+        case ounces
+        case liters
+        case cups
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .ounces: return "oz"
+            case .liters: return "L"
+            case .cups: return "cups"
+            }
+        }
+        /// Number of milliliters per unit
+        var mlPerUnit: Double {
+            switch self {
+            case .ounces: return 29.574
+            case .liters: return 1000.0
+            case .cups: return 236.588
+            }
+        }
+    }
+
     @Published var goalML: Double { didSet { UserDefaults.standard.set(goalML, forKey: "goalML") } }
     @Published var enabled: Bool { didSet { UserDefaults.standard.set(enabled, forKey: "notifEnabled") } }
     @Published var reminderTimesMinutes: [Int] { didSet { UserDefaults.standard.set(reminderTimesMinutes, forKey: "reminderTimesMinutes") } }
     @Published var reminderEnabled: [Bool] { didSet { UserDefaults.standard.set(reminderEnabled, forKey: "reminderEnabled") } }
+    @Published var volumeUnit: VolumeUnit { didSet { UserDefaults.standard.set(volumeUnit.rawValue, forKey: "volumeUnit") } }
 
     init() {
         let savedGoal = UserDefaults.standard.double(forKey: "goalML")
@@ -26,6 +49,10 @@ final class SettingsStore: ObservableObject {
         let defaults = [9,11,13,15,17,19].map { $0 * 60 }
         self.reminderTimesMinutes = (savedTimes?.count == 6 ? savedTimes! : defaults)
         self.reminderEnabled = (savedEnabled?.count == 6 ? savedEnabled! : Array(repeating: true, count: 6))
+
+        let savedUnitRaw = UserDefaults.standard.string(forKey: "volumeUnit")
+        let migratedUnitRaw = (savedUnitRaw == "milliliters") ? "liters" : savedUnitRaw
+        self.volumeUnit = VolumeUnit(rawValue: migratedUnitRaw ?? "") ?? .ounces
     }
 
     var defaultReminderTimes: [DateComponents] {

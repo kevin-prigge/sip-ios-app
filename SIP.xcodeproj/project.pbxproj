@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		C6A359072E8E2A2900AFC9F2 /* Sip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Sip.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C6A359072E8E2A2900AFC9F2 /* SIP.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SIP.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -40,7 +40,7 @@
 		C6A359082E8E2A2900AFC9F2 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				C6A359072E8E2A2900AFC9F2 /* Sip.app */,
+				C6A359072E8E2A2900AFC9F2 /* SIP.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -48,9 +48,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		C6A359062E8E2A2900AFC9F2 /* Sip */ = {
+		C6A359062E8E2A2900AFC9F2 /* SIP */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = C6A359122E8E2A2B00AFC9F2 /* Build configuration list for PBXNativeTarget "Sip" */;
+			buildConfigurationList = C6A359122E8E2A2B00AFC9F2 /* Build configuration list for PBXNativeTarget "SIP" */;
 			buildPhases = (
 				C6A359032E8E2A2900AFC9F2 /* Sources */,
 				C6A359042E8E2A2900AFC9F2 /* Frameworks */,
@@ -63,11 +63,11 @@
 			fileSystemSynchronizedGroups = (
 				C6A359092E8E2A2900AFC9F2 /* Sip */,
 			);
-			name = Sip;
+			name = SIP;
 			packageProductDependencies = (
 			);
 			productName = Sip;
-			productReference = C6A359072E8E2A2900AFC9F2 /* Sip.app */;
+			productReference = C6A359072E8E2A2900AFC9F2 /* SIP.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -85,7 +85,7 @@
 					};
 				};
 			};
-			buildConfigurationList = C6A359022E8E2A2900AFC9F2 /* Build configuration list for PBXProject "Sip" */;
+			buildConfigurationList = C6A359022E8E2A2900AFC9F2 /* Build configuration list for PBXProject "SIP" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -99,7 +99,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				C6A359062E8E2A2900AFC9F2 /* Sip */,
+				C6A359062E8E2A2900AFC9F2 /* SIP */,
 			);
 		};
 /* End PBXProject section */
@@ -319,7 +319,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		C6A359022E8E2A2900AFC9F2 /* Build configuration list for PBXProject "Sip" */ = {
+		C6A359022E8E2A2900AFC9F2 /* Build configuration list for PBXProject "SIP" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C6A359102E8E2A2B00AFC9F2 /* Debug */,
@@ -328,7 +328,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		C6A359122E8E2A2B00AFC9F2 /* Build configuration list for PBXNativeTarget "Sip" */ = {
+		C6A359122E8E2A2B00AFC9F2 /* Build configuration list for PBXNativeTarget "SIP" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				C6A359132E8E2A2B00AFC9F2 /* Debug */,
