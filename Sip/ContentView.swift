@@ -163,17 +163,21 @@ struct ContentView: View {
                         }
                     }
                 }
+                
+                Section {
+                    NavigationLink(destination: SettingsView(settings: settings)) {
+                        Label("Settings", systemImage: "gear")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+                    .tint(.gray)
+                    .controlSize(.large)
+                }
             }
             .coordinateSpace(name: "scroll")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink(destination: SettingsView(settings: settings)) {
-                        Image(systemName: "gear")
-                    }
-                    .accessibilityLabel("Settings")
-                }
-            }
             .safeAreaInset(edge: .top, spacing: 0) {
                 CollapsingHeader(progress: headerCollapse, isPresentingAdd: $showingAddCard)
             }
