@@ -32,6 +32,15 @@ struct SettingsView: View {
                     .pickerStyle(.segmented)
                 }
 
+                Section("Appearance") {
+                    Picker("Appearance", selection: $settings.appearance) {
+                        Text("System").tag(SettingsStore.Appearance.system)
+                        Text("Light").tag(SettingsStore.Appearance.light)
+                        Text("Dark").tag(SettingsStore.Appearance.dark)
+                    }
+                    .pickerStyle(.segmented)
+                }
+
                 Section("Reminders") {
                     Toggle("Enable reminders", isOn: $settings.enabled)
                         .onChange(of: settings.enabled) { _, on in
@@ -135,6 +144,11 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Color.clear
+                    .frame(height: 0.5)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 0))
+            }
             .task {
                 NotificationManager.shared.configure()
                 let granted = await NotificationManager.shared.requestPermission()

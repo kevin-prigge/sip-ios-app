@@ -15,8 +15,8 @@ struct ContentView: View {
     @State private var todayCoffee: Int = 0
     @Environment(\.scenePhase) private var scenePhase
     @State private var midnightTimer: Timer? = nil
-    @State private var headerCollapse: CGFloat = 0
     @State private var showingAddCard: Bool = false
+    @State private var reachedGoal: Bool = false
 
     private var bonusPairs: Int { (todaySoda + todayCoffee) / 2 }
     private var bonusOunces: Int { bonusPairs * 8 }
@@ -49,30 +49,8 @@ struct ContentView: View {
                         showsDecimal: showsDecimal,
                         drinkCounts: (water: todayDrinks, soda: todaySoda, coffee: todayCoffee)
                     )
-                    .background(
-                        GeometryReader { proxy in
-                            Color.clear
-                                .preference(
-                                    key: ScrollOffsetPreferenceKey.self,
-                                    value: proxy.frame(in: .named("scroll")).minY
-                                )
-                        }
-                    )
                 }
                 
-                Section {
-                    Button {
-                        showingAddCard = true
-                    } label: {
-                        Text("Add Drink")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.blue)
-                    .controlSize(.large)
-                }
-
                 Section("Quick Add") {
                     VStack(alignment: .leading, spacing: 8) {
                         let unit = settings.volumeUnit
@@ -101,6 +79,8 @@ struct ContentView: View {
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .tint(.blue)
+                                .padding(.vertical, 8)
+                                .contentShape(Rectangle())
                             }
                         }
                         // Soda row: 12, 20 oz (red)
@@ -117,9 +97,12 @@ struct ContentView: View {
                                 }()
                                 Button(title) {
                                     todaySoda += 1
+                                    saveCaffeineCounts()
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .tint(.red)
+                                .padding(.vertical, 8)
+                                .contentShape(Rectangle())
                             }
                         }
                         // Coffee row: 8 oz (brown)
@@ -136,10 +119,34 @@ struct ContentView: View {
                             }()
                             Button(title) {
                                 todayCoffee += 1
+                                saveCaffeineCounts()
                             }
                             .buttonStyle(.borderedProminent)
                             .tint(.brown)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
                         }
+
+                        // Centered Add button for additional entry point
+                        HStack {
+                            Spacer()
+                            Button {
+                                showingAddCard = true
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "plus")
+                                        .font(.headline)
+                                    Text("Add Drink")
+                                        .font(.headline)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                            }
+                            .buttonStyle(.glassProminent)
+                            .contentShape(Rectangle())
+                            Spacer()
+                        }
+                        .padding(.top, 4)
                     }
                 }
 
@@ -167,19 +174,30 @@ struct ContentView: View {
                 Section {
                     NavigationLink(destination: SettingsView(settings: settings)) {
                         Label("Settings", systemImage: "gear")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .tint(.gray)
-                    .controlSize(.large)
                 }
             }
-            .coordinateSpace(name: "scroll")
-            .navigationBarTitleDisplayMode(.inline)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                CollapsingHeader(progress: headerCollapse, isPresentingAdd: $showingAddCard)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        showingAddCard = true
+                    } label: {
+                        Image(showingAddCard ? "SIPHeaderIcon2" : "SIPHeaderIcon")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(height: 54)
+                            .accessibilityLabel("Add drink")
+                    }
+                    .contentShape(Rectangle())
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        showingAddCard = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .accessibilityLabel("Add drink")
+                    }
+                }
             }
             .sheet(isPresented: $showingAddCard) {
                 AddDrinkSheet(settings: settings, isPresented: $showingAddCard) { kind, amount in
@@ -193,8 +211,10 @@ struct ContentView: View {
                         }
                     case .soda:
                         todaySoda += 1
+                        saveCaffeineCounts()
                     case .coffee:
                         todayCoffee += 1
+                        saveCaffeineCounts()
                     }
                 }
                 .presentationDetents([.height(300), .medium])
@@ -203,20 +223,28 @@ struct ContentView: View {
             .task {
                 do { try await HealthKitManager.shared.requestAuthorization() } catch { }
                 await refresh()
-                scheduleMidnightRefresh()
+                await MainActor.run { loadCaffeineCounts() }
+                await MainActor.run { scheduleMidnightRefresh() }
             }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
-                    midnightTimer?.invalidate()
-                    scheduleMidnightRefresh()
+                    Task { @MainActor in
+                        midnightTimer?.invalidate()
+                        scheduleMidnightRefresh()
+                        loadCaffeineCounts()
+                    }
                     Task { await refresh() }
                 }
             }
-            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { y in
-                let progress = min(max(-y / 80.0, 0.0), 1.0)
-                headerCollapse = progress
-            }
             .refreshable { await refresh() }
+            .sensoryFeedback(.success, trigger: reachedGoal)
+            .preferredColorScheme({
+                switch settings.appearance {
+                case .system: return nil
+                case .light: return .light
+                case .dark: return .dark
+                }
+            }())
         }
     }
 
@@ -225,6 +253,30 @@ struct ContentView: View {
         let ml = (try? await HealthKitManager.shared.todayTotalML()) ?? 0
         todayML = ml
         todayDrinks = (try? await HealthKitManager.shared.todaySampleCount()) ?? 0
+        let didReach = todayML >= adjustedGoalML
+        if didReach && !reachedGoal { reachedGoal = true }
+    }
+
+    private func todayKey(_ kind: String) -> String {
+        let comps = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        let y = comps.year ?? 0
+        let m = comps.month ?? 0
+        let d = comps.day ?? 0
+        return "sip.\(kind).\(y)-\(m)-\(d)"
+    }
+
+    @MainActor
+    private func loadCaffeineCounts() {
+        let defaults = UserDefaults.standard
+        todaySoda = defaults.integer(forKey: todayKey("soda"))
+        todayCoffee = defaults.integer(forKey: todayKey("coffee"))
+    }
+
+    @MainActor
+    private func saveCaffeineCounts() {
+        let defaults = UserDefaults.standard
+        defaults.set(todaySoda, forKey: todayKey("soda"))
+        defaults.set(todayCoffee, forKey: todayKey("coffee"))
     }
 
     @MainActor
@@ -240,6 +292,7 @@ struct ContentView: View {
                 await MainActor.run {
                     todaySoda = 0
                     todayCoffee = 0
+                    saveCaffeineCounts()
                 }
             }
             scheduleMidnightRefresh()
@@ -257,7 +310,7 @@ struct TodayRing: View {
     let drinkCounts: (water: Int, soda: Int, coffee: Int)
 
     var body: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 12) {
             ZStack {
                 Circle()
                     .stroke(.secondary.opacity(0.2), lineWidth: 16)
@@ -272,6 +325,36 @@ struct TodayRing: View {
                     .rotationEffect(.degrees(-90))
                     .animation(.easeInOut(duration: 0.4), value: progress)
 
+                // Inner caffeine ring (shows caffeinated share and split into soda (red) and coffee (brown))
+                let totalDrinks = drinkCounts.water + drinkCounts.soda + drinkCounts.coffee
+                let sodaFrac: Double = totalDrinks > 0 ? Double(drinkCounts.soda) / Double(totalDrinks) : 0
+                let coffeeFrac: Double = totalDrinks > 0 ? Double(drinkCounts.coffee) / Double(totalDrinks) : 0
+
+                // Track for inner ring
+                Circle()
+                    .stroke(.secondary.opacity(0.15), lineWidth: 10)
+                    .padding(13)
+
+                // Soda segment
+                if sodaFrac > 0 {
+                    Circle()
+                        .trim(from: 0, to: min(sodaFrac, 1))
+                        .stroke(.red, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .padding(13)
+                        .animation(.easeInOut(duration: 0.35), value: drinkCounts.soda)
+                }
+
+                // Coffee segment
+                if coffeeFrac > 0 {
+                    Circle()
+                        .trim(from: min(sodaFrac, 1), to: min(sodaFrac + coffeeFrac, 1))
+                        .stroke(.brown, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .padding(13)
+                        .animation(.easeInOut(duration: 0.35), value: drinkCounts.coffee)
+                }
+
                 VStack(spacing: 6) {
                     Image(systemName: "drop.fill")
                         .font(.system(size: 24, weight: .semibold))
@@ -280,6 +363,8 @@ struct TodayRing: View {
                         Text(showsDecimal ? String(format: "%.1f", amountValue) : String(Int(amountValue)))
                             .font(.system(.title, design: .rounded).weight(.bold))
                             .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
                         if progress >= 1.0 {
                             Text("you did it! 🎉")
                                 .font(.footnote)
@@ -288,43 +373,51 @@ struct TodayRing: View {
                             Text(showsDecimal ? String(format: "of %.1f %@", goalValue + bonusValue, unitLabel) : "of \(Int(goalValue + bonusValue)) \(unitLabel)")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.85)
                         }
                     }
                 }
             }
-            .frame(width: 140, height: 140)
+            .frame(minWidth: 120, minHeight: 120)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Drinks Today")
                     .font(.headline)
-                HStack(spacing: 8) {
-                    HStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    HStack(spacing: 4) {
                         Image(systemName: "waterbottle.fill")
-                            .font(.system(size: 20, weight: .semibold))
+                            .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(.blue)
                         Text("x \(drinkCounts.water)")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.footnote.weight(.semibold))
                             .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    HStack(spacing: 6) {
+                    HStack(spacing: 4) {
                         Image(systemName: "waterbottle.fill")
-                            .font(.system(size: 20, weight: .semibold))
+                            .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(.red)
                         Text("x \(drinkCounts.soda)")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.footnote.weight(.semibold))
                             .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    HStack(spacing: 6) {
+                    HStack(spacing: 4) {
                         Image(systemName: "mug.fill")
-                            .font(.system(size: 20, weight: .semibold))
+                            .font(.system(size: 18, weight: .semibold))
                             .foregroundStyle(.brown)
                         Text("x \(drinkCounts.coffee)")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.footnote.weight(.semibold))
                             .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -355,21 +448,24 @@ struct CollapsingHeader: View {
             let leadingX = 16 + height / 2
             let x = centerX + (leadingX - centerX) * progress
 
-            Image(isPresentingAdd ? "SIPHeaderIcon2" : "SIPHeaderIcon")
-                .resizable()
-                .scaledToFit()
-                .frame(height: height)
-                .accessibilityHidden(false)
-                .accessibilityLabel("Add drink")
-                .accessibilityAddTraits(.isButton)
-                .position(x: x, y: bigHeight / 2)
-                .contentShape(Rectangle())
-                .onTapGesture { isPresentingAdd = true }
-                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: progress)
+            HStack(spacing: 12) {
+                Button {
+                    isPresentingAdd = true
+                } label: {
+                    Image(isPresentingAdd ? "SIPHeaderIcon2" : "SIPHeaderIcon")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: height)
+                        .accessibilityLabel("Add drink")
+                }
+            }
+            .position(x: x, y: bigHeight / 2)
+            .contentShape(Rectangle())
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: progress)
         }
         .frame(height: 100)
         .padding(.vertical, 6)
-        .background(.bar)
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 0))
     }
 }
 
@@ -384,6 +480,7 @@ struct AddDrinkSheet: View {
     var onAdd: (DrinkKind, Double) -> Void
     @State private var kind: DrinkKind = .water
     @State private var amount: Double = 12
+    @State private var didAdd: Bool = false
 
     private var sliderTint: Color {
         switch kind {
@@ -445,10 +542,12 @@ struct AddDrinkSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
+                        didAdd.toggle()
                         onAdd(kind, amount)
                         isPresented = false
                     }
                     .disabled(amount <= 0)
+                    .sensoryFeedback(.success, trigger: didAdd)
                 }
             }
             .onAppear {

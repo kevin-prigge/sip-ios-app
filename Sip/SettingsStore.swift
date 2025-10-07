@@ -33,11 +33,19 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    enum Appearance: String, CaseIterable, Identifiable, Codable {
+        case system
+        case light
+        case dark
+        var id: String { rawValue }
+    }
+
     @Published var goalML: Double { didSet { UserDefaults.standard.set(goalML, forKey: "goalML") } }
     @Published var enabled: Bool { didSet { UserDefaults.standard.set(enabled, forKey: "notifEnabled") } }
     @Published var reminderTimesMinutes: [Int] { didSet { UserDefaults.standard.set(reminderTimesMinutes, forKey: "reminderTimesMinutes") } }
     @Published var reminderEnabled: [Bool] { didSet { UserDefaults.standard.set(reminderEnabled, forKey: "reminderEnabled") } }
     @Published var volumeUnit: VolumeUnit { didSet { UserDefaults.standard.set(volumeUnit.rawValue, forKey: "volumeUnit") } }
+    @Published var appearance: Appearance { didSet { UserDefaults.standard.set(appearance.rawValue, forKey: "appearance") } }
 
     init() {
         let savedGoal = UserDefaults.standard.double(forKey: "goalML")
@@ -53,6 +61,9 @@ final class SettingsStore: ObservableObject {
         let savedUnitRaw = UserDefaults.standard.string(forKey: "volumeUnit")
         let migratedUnitRaw = (savedUnitRaw == "milliliters") ? "liters" : savedUnitRaw
         self.volumeUnit = VolumeUnit(rawValue: migratedUnitRaw ?? "") ?? .ounces
+
+        let savedAppearanceRaw = UserDefaults.standard.string(forKey: "appearance")
+        self.appearance = Appearance(rawValue: savedAppearanceRaw ?? "") ?? .system
     }
 
     var defaultReminderTimes: [DateComponents] {
@@ -73,3 +84,4 @@ final class SettingsStore: ObservableObject {
         }
     }
 }
+
