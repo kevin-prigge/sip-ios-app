@@ -13,14 +13,21 @@ final class HealthKitManager {
 
     private let store = HKHealthStore()
     private let waterType = HKObjectType.quantityType(forIdentifier: .dietaryWater)!
+    private let caffeineType = HKObjectType.quantityType(forIdentifier: .dietaryCaffeine)!
 
     func requestAuthorization() async throws {
-        try await store.requestAuthorization(toShare: [waterType], read: [waterType])
+        try await store.requestAuthorization(toShare: [waterType, caffeineType], read: [waterType, caffeineType])
     }
 
     func addWater(mL: Double, at date: Date = .now) async throws {
         let qty = HKQuantity(unit: .literUnit(with: .milli), doubleValue: mL)
         let sample = HKQuantitySample(type: waterType, quantity: qty, start: date, end: date)
+        try await store.save(sample)
+    }
+    
+    func addCaffeine(mg: Double, at date: Date = .now) async throws {
+        let qty = HKQuantity(unit: .gramUnit(with: .milli), doubleValue: mg)
+        let sample = HKQuantitySample(type: caffeineType, quantity: qty, start: date, end: date)
         try await store.save(sample)
     }
 
@@ -50,3 +57,4 @@ final class HealthKitManager {
         }
     }
 }
+

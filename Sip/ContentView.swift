@@ -6,6 +6,73 @@
 //
 
 import SwiftUI
+import UserNotifications
+
+extension Notification.Name {
+    static let hydrationQuickAdd = Notification.Name("HydrationQuickAdd")
+}
+
+final class AppNotificationManager: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = AppNotificationManager()
+
+    private override init() { super.init() }
+
+    func setupCategories() {
+        let quickAdd4 = UNNotificationAction(
+            identifier: "quickAdd4oz",
+            title: "+4 oz 💧",
+            options: []
+        )
+        let quickAdd8 = UNNotificationAction(
+            identifier: "quickAdd8oz",
+            title: "+8 oz 💧",
+            options: []
+        )
+        let quickAdd12 = UNNotificationAction(
+            identifier: "quickAdd12oz",
+            title: "+12 oz 💧",
+            options: []
+        )
+        let quickAdd16 = UNNotificationAction(
+            identifier: "quickAdd16oz",
+            title: "+16 oz 💧",
+            options: []
+        )
+
+        let hydrationCategory = UNNotificationCategory(
+            identifier: "hydrationCategory",
+            actions: [quickAdd4, quickAdd8, quickAdd12, quickAdd16],
+            intentIdentifiers: [],
+            options: []
+        )
+
+        let center = UNUserNotificationCenter.current()
+        center.setNotificationCategories([hydrationCategory])
+        center.delegate = self
+    }
+
+    // Handle action taps
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let ounces: Int? = {
+            switch response.actionIdentifier {
+            case "quickAdd4oz": return 4
+            case "quickAdd8oz": return 8
+            case "quickAdd12oz": return 12
+            case "quickAdd16oz": return 16
+            default: return nil
+            }
+        }()
+
+        if let ounces {
+            NotificationCenter.default.post(name: .hydrationQuickAdd,
+                                            object: nil,
+                                            userInfo: ["ounces": ounces])
+        }
+        completionHandler()
+    }
+}
 
 struct ContentView: View {
     @StateObject private var settings = SettingsStore()
@@ -98,6 +165,10 @@ struct ContentView: View {
                                 Button(title) {
                                     todaySoda += 1
                                     saveCaffeineCounts()
+                                    // Approximate caffeine: ~2.9 mg/oz
+                                    let mgPerOz = 35.0 / 12.0
+                                    let mg = Double(baseOz) * mgPerOz
+                                    Task { try? await HealthKitManager.shared.addCaffeine(mg: mg) }
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .tint(.red)
@@ -120,6 +191,10 @@ struct ContentView: View {
                             Button(title) {
                                 todayCoffee += 1
                                 saveCaffeineCounts()
+                                // Approximate caffeine: ~12 mg/oz
+                                let mgPerOz = 96.0 / 8.0
+                                let mg = Double(baseOz) * mgPerOz
+                                Task { try? await HealthKitManager.shared.addCaffeine(mg: mg) }
                             }
                             .buttonStyle(.borderedProminent)
                             .tint(.brown)
@@ -177,6 +252,17 @@ struct ContentView: View {
                     }
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .hydrationQuickAdd)) { note in
+                guard let ounces = note.userInfo?["ounces"] as? Int else { return }
+                let ml = Double(ounces) * 29.574
+                Task {
+                    try? await HealthKitManager.shared.addWater(mL: ml)
+                    await MainActor.run {
+                        todayDrinks += 1
+                    }
+                    await refresh()
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
@@ -212,9 +298,17 @@ struct ContentView: View {
                     case .soda:
                         todaySoda += 1
                         saveCaffeineCounts()
+                        let oz = amount * settings.volumeUnit.mlPerUnit / 29.574
+                        let mgPerOz = 35.0 / 12.0
+                        let mg = oz * mgPerOz
+                        Task { try? await HealthKitManager.shared.addCaffeine(mg: mg) }
                     case .coffee:
                         todayCoffee += 1
                         saveCaffeineCounts()
+                        let oz = amount * settings.volumeUnit.mlPerUnit / 29.574
+                        let mgPerOz = 96.0 / 8.0
+                        let mg = oz * mgPerOz
+                        Task { try? await HealthKitManager.shared.addCaffeine(mg: mg) }
                     }
                 }
                 .presentationDetents([.height(300), .medium])
@@ -222,6 +316,8 @@ struct ContentView: View {
             }
             .task {
                 do { try await HealthKitManager.shared.requestAuthorization() } catch { }
+                AppNotificationManager.shared.setupCategories()
+                // When scheduling a local notification, set: content.categoryIdentifier = "hydrationCategory"
                 await refresh()
                 await MainActor.run { loadCaffeineCounts() }
                 await MainActor.run { scheduleMidnightRefresh() }
@@ -295,7 +391,9 @@ struct ContentView: View {
                     saveCaffeineCounts()
                 }
             }
-            scheduleMidnightRefresh()
+            Task { @MainActor in
+                scheduleMidnightRefresh()
+            }
         }
     }
 }
