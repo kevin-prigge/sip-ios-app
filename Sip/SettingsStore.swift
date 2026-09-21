@@ -55,8 +55,11 @@ final class SettingsStore: ObservableObject {
         let savedTimes = UserDefaults.standard.array(forKey: "reminderTimesMinutes") as? [Int]
         let savedEnabled = UserDefaults.standard.array(forKey: "reminderEnabled") as? [Bool]
         let defaults = [9,11,13,15,17,19].map { $0 * 60 }
-        self.reminderTimesMinutes = (savedTimes?.count == 6 ? savedTimes! : defaults)
-        self.reminderEnabled = (savedEnabled?.count == 6 ? savedEnabled! : Array(repeating: true, count: 6))
+        let reminderTimes = savedTimes?.isEmpty == false ? savedTimes! : defaults
+        self.reminderTimesMinutes = reminderTimes
+        self.reminderEnabled = savedEnabled?.count == reminderTimes.count
+            ? savedEnabled!
+            : Array(repeating: true, count: reminderTimes.count)
 
         let savedUnitRaw = UserDefaults.standard.string(forKey: "volumeUnit")
         let migratedUnitRaw = (savedUnitRaw == "milliliters") ? "liters" : savedUnitRaw
@@ -76,11 +79,23 @@ final class SettingsStore: ObservableObject {
     }
 
     var currentReminderTimes: [DateComponents] {
-        reminderTimesMinutes.prefix(6).map { minutes in
+        reminderTimesMinutes.map { minutes in
             var dc = DateComponents()
             dc.hour = minutes / 60
             dc.minute = minutes % 60
             return dc
+        }
+    }
+
+    func addReminder() {
+        reminderTimesMinutes.append(12 * 60)
+        reminderEnabled.append(true)
+    }
+
+    func removeReminders(at offsets: IndexSet) {
+        for index in offsets.sorted(by: >) {
+            reminderTimesMinutes.remove(at: index)
+            reminderEnabled.remove(at: index)
         }
     }
 }

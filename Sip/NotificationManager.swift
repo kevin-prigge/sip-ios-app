@@ -50,6 +50,10 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         center.setNotificationCategories([category])
     }
 
+    func authorizationStatus() async -> UNAuthorizationStatus {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
+
     /// Request notification authorization. Call this before scheduling notifications.
     func requestPermission() async -> Bool {
         do {
