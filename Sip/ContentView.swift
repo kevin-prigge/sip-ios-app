@@ -73,11 +73,19 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Image("SIPHeaderIcon")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(height: 40)
-                        .accessibilityLabel("Sip")
+                    NavigationLink {
+                        AchievementsView(
+                            drinkLog: drinkLog,
+                            goalML: settings.goalML,
+                            unit: settings.volumeUnit
+                        )
+                    } label: {
+                        Image("SIPHeaderIcon")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(height: 40)
+                    }
+                    .accessibilityLabel("Achievements")
                 }
 
                 ToolbarItemGroup(placement: .topBarTrailing) {
@@ -91,7 +99,11 @@ struct ContentView: View {
                     }
 
                     NavigationLink {
-                        SettingsView(settings: settings)
+                        SettingsView(
+                            settings: settings,
+                            currentAmountML: todayML,
+                            goalAdjustmentOunces: totalAdjustmentOunces
+                        )
                     } label: {
                         Label("Settings", systemImage: "gear")
                     }
@@ -118,19 +130,19 @@ struct ContentView: View {
             }
             .task {
                 configureNotificationActions()
-                await refresh()
                 loadDrinkCounts()
+                await refresh()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 guard newPhase == .active else { return }
                 Task {
-                    await refresh()
                     loadDrinkCounts()
+                    await refresh()
                 }
             }
             .refreshable {
-                await refresh()
                 loadDrinkCounts()
+                await refresh()
             }
             .sensoryFeedback(.success, trigger: feedbackTrigger)
             .preferredColorScheme(preferredColorScheme)
@@ -206,6 +218,24 @@ struct ContentView: View {
     @MainActor
     private func refresh() async {
         todayML = (try? await HealthKitManager.shared.todayTotalML()) ?? 0
+        await refreshScheduledReminders()
+    }
+
+    private func refreshScheduledReminders() async {
+        guard settings.enabled else { return }
+        let status = await NotificationManager.shared.authorizationStatus()
+        guard status == .authorized else { return }
+
+        let times = zip(settings.currentReminderTimes, settings.reminderEnabled)
+            .compactMap { time, isEnabled in isEnabled ? time : nil }
+        let manager = NotificationManager.shared
+        manager.clearScheduled()
+        await manager.scheduleDaily(
+            times: times,
+            amountML: todayML,
+            goalML: adjustedGoalML,
+            unit: settings.volumeUnit
+        )
     }
 
     private func showConfirmation(for kind: DrinkKind) {
@@ -578,6 +608,6 @@ struct AddDrinkSheet: View {
     }
 }
 
-private enum MeasurementConstants {
+enum MeasurementConstants {
     static let millilitersPerOunce = 29.5735
 }

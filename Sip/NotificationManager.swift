@@ -8,6 +8,7 @@
 import UserNotifications
 import Foundation
 import Combine
+import UIKit
 
 private enum HydrationNotificationIDs {
     static let category = "HYDRATION_REMINDER"
@@ -73,8 +74,15 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
         "You're at \(totalOunces)/\(goalOunces) oz"
     }
 
-    /// Schedule reminders at fixed times (e.g., 9a, 11a, 1p, 3p, 5p, 7p)
-    func scheduleDaily(times: [DateComponents], title: String = "Sip", body: String = "Time to drink some water 💧") {
+    /// Schedule reminders with a snapshot of the latest hydration progress.
+    func scheduleDaily(
+        times: [DateComponents],
+        amountML: Double,
+        goalML: Double,
+        unit: SettingsStore.VolumeUnit,
+        title: String = "Sip",
+        body: String = "It's time to drink water."
+    ) async {
         let center = UNUserNotificationCenter.current()
         for (idx, dc) in times.enumerated() {
             let trigger = UNCalendarNotificationTrigger(dateMatching: dc, repeats: true)
@@ -83,9 +91,91 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
             content.body = body
             content.sound = .default
             content.categoryIdentifier = HydrationNotificationIDs.category
+            content.subtitle = progressSubtitle(amountML: amountML, goalML: goalML, unit: unit)
+            if let attachment = progressRingAttachment(amountML: amountML, goalML: goalML) {
+                content.attachments = [attachment]
+            }
             let id = "sip.daily.\(idx)"
             let req = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-            center.add(req)
+            try? await center.add(req)
+        }
+    }
+
+    private func progressSubtitle(
+        amountML: Double,
+        goalML: Double,
+        unit: SettingsStore.VolumeUnit
+    ) -> String {
+        let amount = amountML / unit.mlPerUnit
+        let goal = goalML / unit.mlPerUnit
+        if unit == .ounces {
+            return "\(Int(amount.rounded())) of \(Int(goal.rounded())) \(unit.label)"
+        }
+        return "\(amount.formatted(.number.precision(.fractionLength(1)))) of "
+            + "\(goal.formatted(.number.precision(.fractionLength(1)))) \(unit.label)"
+    }
+
+    private func progressRingAttachment(amountML: Double, goalML: Double) -> UNNotificationAttachment? {
+        let progress = goalML > 0 ? min(max(amountML / goalML, 0), 1) : 0
+        let size = CGSize(width: 320, height: 320)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        format.opaque = false
+
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let radius: CGFloat = 112
+            let lineWidth: CGFloat = 28
+            let startAngle = -CGFloat.pi / 2
+
+            context.cgContext.setLineWidth(lineWidth)
+            context.cgContext.setLineCap(.round)
+            context.cgContext.setStrokeColor(UIColor.systemBlue.withAlphaComponent(0.16).cgColor)
+            context.cgContext.addArc(
+                center: center,
+                radius: radius,
+                startAngle: 0,
+                endAngle: CGFloat.pi * 2,
+                clockwise: false
+            )
+            context.cgContext.strokePath()
+
+            context.cgContext.setStrokeColor(UIColor.systemCyan.cgColor)
+            context.cgContext.addArc(
+                center: center,
+                radius: radius,
+                startAngle: startAngle,
+                endAngle: startAngle + CGFloat.pi * 2 * progress,
+                clockwise: false
+            )
+            context.cgContext.strokePath()
+
+            let percent = NumberFormatter.localizedString(
+                from: NSNumber(value: progress),
+                number: .percent
+            )
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: UIFont.monospacedDigitSystemFont(ofSize: 54, weight: .bold),
+                .foregroundColor: UIColor.label
+            ]
+            let text = NSAttributedString(string: percent, attributes: attributes)
+            let textSize = text.size()
+            text.draw(at: CGPoint(
+                x: center.x - textSize.width / 2,
+                y: center.y - textSize.height / 2
+            ))
+        }
+
+        guard let data = image.pngData() else { return nil }
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sip-progress-\(UUID().uuidString)")
+            .appendingPathExtension("png")
+        do {
+            try data.write(to: fileURL, options: .atomic)
+            return try UNNotificationAttachment(identifier: "hydration-progress", url: fileURL)
+        } catch {
+            try? FileManager.default.removeItem(at: fileURL)
+            return nil
         }
     }
 

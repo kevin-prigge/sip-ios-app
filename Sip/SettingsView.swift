@@ -4,6 +4,8 @@ import UserNotifications
 
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
+    let currentAmountML: Double
+    let goalAdjustmentOunces: Int
 
     @Environment(\.openURL) private var openURL
     @State private var authorizationStatus: UNAuthorizationStatus = .notDetermined
@@ -43,18 +45,22 @@ struct SettingsView: View {
                 if settings.enabled && authorizationStatus == .authorized {
                     ForEach(settings.reminderTimesMinutes.indices, id: \.self) { index in
                         HStack {
+                            DatePicker(
+                                "Reminder time",
+                                selection: reminderDateBinding(for: index),
+                                displayedComponents: .hourAndMinute
+                            )
+                            .labelsHidden()
+                            .accessibilityLabel("Reminder time")
+
+                            Spacer()
+
                             Toggle(
                                 "Enable reminder",
                                 isOn: reminderEnabledBinding(for: index)
                             )
                             .labelsHidden()
                             .accessibilityLabel("Enable reminder")
-
-                            DatePicker(
-                                "Reminder",
-                                selection: reminderDateBinding(for: index),
-                                displayedComponents: .hourAndMinute
-                            )
                         }
                     }
                     .onDelete(perform: removeReminders)
@@ -124,8 +130,12 @@ struct SettingsView: View {
 
     private func reminderEnabledBinding(for index: Int) -> Binding<Bool> {
         Binding(
-            get: { settings.reminderEnabled[index] },
+            get: {
+                guard settings.reminderEnabled.indices.contains(index) else { return false }
+                return settings.reminderEnabled[index]
+            },
             set: { isEnabled in
+                guard settings.reminderEnabled.indices.contains(index) else { return }
                 settings.reminderEnabled[index] = isEnabled
                 Task { await rescheduleReminders() }
             }
@@ -135,13 +145,15 @@ struct SettingsView: View {
     private func reminderDateBinding(for index: Int) -> Binding<Date> {
         Binding(
             get: {
-                Calendar.current.date(
+                guard settings.reminderTimesMinutes.indices.contains(index) else { return .now }
+                return Calendar.current.date(
                     byAdding: .minute,
                     value: settings.reminderTimesMinutes[index],
                     to: Calendar.current.startOfDay(for: .now)
                 ) ?? .now
             },
             set: { date in
+                guard settings.reminderTimesMinutes.indices.contains(index) else { return }
                 let components = Calendar.current.dateComponents([.hour, .minute], from: date)
                 settings.reminderTimesMinutes[index] =
                     (components.hour ?? 0) * 60 + (components.minute ?? 0)
@@ -163,6 +175,13 @@ struct SettingsView: View {
 
         let times = zip(settings.currentReminderTimes, settings.reminderEnabled)
             .compactMap { time, isEnabled in isEnabled ? time : nil }
-        manager.scheduleDaily(times: times)
+        let adjustedGoalML = settings.goalML
+            + Double(goalAdjustmentOunces) * MeasurementConstants.millilitersPerOunce
+        await manager.scheduleDaily(
+            times: times,
+            amountML: currentAmountML,
+            goalML: adjustedGoalML,
+            unit: settings.volumeUnit
+        )
     }
 }

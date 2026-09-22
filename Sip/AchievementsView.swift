@@ -61,7 +61,7 @@ struct AchievementsView: View {
                         )
                     }
 
-                    Section("Daily Drink Averages") {
+                    Section {
                         ForEach(DrinkKind.allCases) { kind in
                             LabeledContent {
                                 Text(summary.averageDailyCount(for: kind), format: .number.precision(.fractionLength(1)))
@@ -73,6 +73,8 @@ struct AchievementsView: View {
                                     .foregroundStyle(kind.color)
                             }
                         }
+                    } header: {
+                        Text("Daily Drink Averages")
                     } footer: {
                         Text("Averages include every day since you began tracking, including days without an entry.")
                     }

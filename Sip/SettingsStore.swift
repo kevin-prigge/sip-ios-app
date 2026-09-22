@@ -94,9 +94,10 @@ final class SettingsStore: ObservableObject {
 
     func removeReminders(at offsets: IndexSet) {
         for index in offsets.sorted(by: >) {
+            guard reminderTimesMinutes.indices.contains(index),
+                  reminderEnabled.indices.contains(index) else { continue }
             reminderTimesMinutes.remove(at: index)
             reminderEnabled.remove(at: index)
         }
     }
 }
-
